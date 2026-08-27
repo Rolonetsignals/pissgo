@@ -10,7 +10,8 @@ export default function MonitorTab({
   onCheckIn, 
   onCheckOut, 
   onJoinQueue, 
-  onLeaveQueue 
+  onLeaveQueue,
+  onForceRelease
 }) {
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
@@ -66,8 +67,12 @@ export default function MonitorTab({
         setIsScanning(false);
         if (bathroomState.status === "libre") {
           onCheckIn(activeUser.id);
-        } else {
+        } else if (isUserInside) {
           onCheckOut(activeUser.id);
+        } else {
+          // If another user forgot to exit and a new user scans at door
+          onForceRelease(activeUser.id, "olvido");
+          setTimeout(() => onCheckIn(activeUser.id), 300);
         }
       }, 4500)
     ];
@@ -122,20 +127,52 @@ export default function MonitorTab({
               )}
             </div>
 
-            <div style={{ marginTop: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            {/* Overtime Warning Banner if > 5 minutes */}
+            {elapsedSeconds >= 300 && !isUserInside && (
+              <div style={{
+                background: "rgba(239, 68, 68, 0.12)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                color: "#f87171",
+                fontSize: "0.78rem",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                margin: "14px 0 6px 0",
+                textAlign: "left",
+                lineHeight: "1.4"
+              }}>
+                🚨 <strong>¿El baño ya está desocupado?</strong><br />
+                {occupant?.name} lleva más de {Math.floor(elapsedSeconds / 60)} min. Si ya salió y olvidó presionar "Salir", puedes liberar el baño ahora.
+              </div>
+            )}
+
+            <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "10px" }}>
               {isUserInside ? (
                 <button className="btn-danger" onClick={handleScanClick}>
                   <LogOut size={18} /> Escanear para Salir
                 </button>
               ) : (
                 <>
+                  <button className="btn-primary" onClick={handleScanClick}>
+                    <QrCode size={18} /> Escanear QR en la Puerta (Entrar Yo)
+                  </button>
+
                   {isInQueue ? (
                     <button className="btn-secondary" onClick={() => onLeaveQueue(activeUser.id)}>
                       Salir de la Fila (Posición #{queueIndex + 1})
                     </button>
                   ) : (
-                    <button className="btn-primary" onClick={() => onJoinQueue(activeUser.id)}>
-                      <Users size={18} /> Hacer Fila Virtual
+                    <button className="btn-secondary" onClick={() => onJoinQueue(activeUser.id)}>
+                      <Users size={18} /> Hacer Fila Virtual desde escritorio
+                    </button>
+                  )}
+
+                  {elapsedSeconds >= 300 && (
+                    <button 
+                      className="btn-danger" 
+                      onClick={() => onForceRelease(activeUser.id, "olvido")}
+                      style={{ fontSize: "0.78rem", padding: "8px 12px", background: "rgba(239, 68, 68, 0.2)", borderColor: "rgba(239, 68, 68, 0.4)" }}
+                    >
+                      <AlertCircle size={14} /> Liberar Baño (El anterior olvidó salir)
                     </button>
                   )}
                 </>

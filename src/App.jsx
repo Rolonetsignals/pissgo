@@ -307,7 +307,7 @@ export default function App() {
     };
   }, [isOfflineMode]);
 
-  // 3. Tick active bathroom timer
+  // 3. Tick active bathroom timer & Auto-Release if > 15 minutes (900s)
   useEffect(() => {
     let interval = null;
     if (bathroomState.status === "ocupado" && bathroomState.startTime) {
@@ -315,6 +315,11 @@ export default function App() {
         const start = new Date(bathroomState.startTime).getTime();
         const diff = Math.floor((Date.now() - start) / 1000);
         setElapsedSeconds(diff >= 0 ? diff : 0);
+
+        // Auto-checkout after 15 minutes (900s) if user forgot to checkout
+        if (diff >= 900) {
+          handleForceRelease(null, "auto");
+        }
       };
 
       calculateElapsed();
@@ -326,6 +331,65 @@ export default function App() {
       if (interval) clearInterval(interval);
     };
   }, [bathroomState]);
+
+  // Action: Force Release (If user forgot to checkout)
+  const handleForceRelease = async (byUserId, reason = "olvido") => {
+    const occupantId = bathroomState.occupiedBy;
+    const occupant = users.find(u => u.id === occupantId);
+    const byUser = users.find(u => u.id === byUserId);
+
+    const newBathroomState = {
+      status: "libre",
+      occupiedBy: null,
+      startTime: null,
+      isFirstOfDay: false
+    };
+
+    const reasonText = reason === "auto" 
+      ? "⏱️ Liberación automática por tiempo máximo de 15 minutos."
+      : `🔄 Baño liberado por ${byUser?.name || "un compañero"} (olvido de marca de salida).`;
+
+    const forceMsg = {
+      id: Date.now(),
+      userId: null,
+      text: `🚪 ${reasonText} ${occupant ? `Sesión de ${occupant.name} finalizada.` : ""}`,
+      system: true,
+      status: "success",
+      timestamp: new Date().toISOString()
+    };
+
+    const nextChat = [...chatMessages, forceMsg];
+
+    setBathroomState(newBathroomState);
+    setChatMessages(nextChat);
+
+    if (isOfflineMode) {
+      syncOfflineState({
+        bathroomState: newBathroomState,
+        chatMessages: nextChat
+      });
+    } else {
+      try {
+        await supabase.from("pissgo_bathroom_state").update({
+          status: "libre",
+          occupied_by: null,
+          start_time: null,
+          is_first_of_day: false
+        }).eq("id", 1);
+        await supabase.from("pissgo_chat_messages").insert({
+          user_id: null,
+          text: forceMsg.text,
+          system: true,
+          status: "success"
+        });
+      } catch (err) {
+        syncOfflineState({
+          bathroomState: newBathroomState,
+          chatMessages: nextChat
+        });
+      }
+    }
+  };
 
   // Switch Active User / Login
   const handleUserChange = (userId) => {
@@ -936,6 +1000,7 @@ export default function App() {
             onCheckOut={handleCheckOut}
             onJoinQueue={handleJoinQueue}
             onLeaveQueue={handleLeaveQueue}
+            onForceRelease={handleForceRelease}
           />
         )}
 
