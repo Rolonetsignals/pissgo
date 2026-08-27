@@ -412,9 +412,11 @@ export default function App() {
     const nextUsers = [...users, userToSave];
     setUsers(nextUsers);
 
-    if (isOfflineMode) {
-      syncOfflineState({ users: nextUsers });
-    } else {
+    // Always update local storage database so the user is remembered on refresh
+    const currentLocal = getLocalDb();
+    saveLocalDb({ ...currentLocal, users: nextUsers });
+
+    if (!isOfflineMode) {
       try {
         const { error } = await supabase.from("pissgo_users").insert({
           id: newUser.id,
@@ -429,7 +431,7 @@ export default function App() {
         if (error) throw error;
       } catch (err) {
         console.warn("Supabase error, saving locally:", err.message);
-        syncOfflineState({ users: nextUsers });
+        setIsOfflineMode(true);
       }
     }
 
